@@ -1,0 +1,55 @@
+#' Panel Quantile Autoregressive Distributed Lag Model
+#'
+#' @description
+#' The \pkg{xtpqardl} package provides functions for estimating Panel Quantile
+#' Autoregressive Distributed Lag (PQARDL) models. It combines the panel ARDL
+#' methodology of Pesaran, Shin, and Smith (1999) with quantile regression to
+#' allow for heterogeneous effects across the conditional distribution of the
+#' response variable.
+#'
+#' @details
+#' The main function is \code{\link{xtpqardl}}, which estimates PQARDL models
+#' using Pooled Mean Group (PMG), Mean Group (MG), or Dynamic Fixed Effects
+#' (DFE) estimators. Key features include:
+#'
+#' \itemize{
+#'   \item Estimation at multiple quantiles simultaneously
+#'   \item Long-run cointegrating parameter estimation
+#'   \item Error correction term (ECT) speed of adjustment
+#'   \item Half-life of adjustment computation
+#'   \item Wald tests for parameter equality across quantiles
+#'   \item Impulse response function computation
+#'   \item Automatic lag selection using BIC or AIC
+#' }
+#'
+#' @section Main Functions:
+#' \itemize{
+#'   \item \code{\link{xtpqardl}}: Estimate PQARDL model
+#'   \item \code{\link{summary.xtpqardl}}: Detailed results summary
+#'   \item \code{\link{wald_test}}: Test parameter equality across quantiles
+#'   \item \code{\link{compute_irf}}: Compute impulse response function
+#' }
+#'
+#' @references
+#' Pesaran MH, Shin Y, Smith RP (1999). "Pooled Mean Group Estimation of
+#' Dynamic Heterogeneous Panels." \emph{Journal of the American Statistical
+#' Association}, 94(446), 621-634. \doi{10.1080/01621459.1999.10474156}
+#'
+#' Cho JS, Kim TH, Shin Y (2015). "Quantile Cointegration in the
+#' Autoregressive Distributed-Lag Modeling Framework." \emph{Journal of
+#' Econometrics}, 188(1), 281-300. \doi{10.1016/j.jeconom.2015.02.030}
+#'
+#' Bildirici M, Kayikci F (2022). "Uncertainty, Renewable Energy, and CO2
+#' Emissions in Top Renewable Energy Countries: A Panel Quantile Regression
+#' Approach." \emph{Energy}, 247, 124303. \doi{10.1016/j.energy.2022.124303}
+#'
+#' Koenker R, Bassett G (1978). "Regression Quantiles." \emph{Econometrica},
+#' 46(1), 33-50. \doi{10.2307/1913643}
+#'
+#' @author Merwan Roudane \email{merwanroudane920@@gmail.com}
+#'
+#' @docType package
+#' @name xtpqardl-package
+#' @aliases xtpqardl-package
+#' @keywords internal
+"_PACKAGE"
