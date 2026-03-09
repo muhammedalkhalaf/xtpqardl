@@ -46,7 +46,7 @@
 #' Koenker R, Bassett G (1978). "Regression Quantiles." \emph{Econometrica},
 #' 46(1), 33-50. \doi{10.2307/1913643}
 #'
-#' @author Merwan Roudane \email{merwanroudane920@@gmail.com}
+#' @author 
 #'
 #' @docType package
 #' @name xtpqardl-package

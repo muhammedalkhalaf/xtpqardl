@@ -16,7 +16,6 @@ the conditional distribution of the response variable.
 install.packages("xtpqardl")
 
 # Or install development version from GitHub
-# devtools::install_github("merwanroudane/xtpqardl")
 ```
 
 ## Usage
@@ -77,8 +76,6 @@ print(irf)
   [doi:10.1016/j.energy.2022.124303](https://doi.org/10.1016/j.energy.2022.124303)
 
 ## Author
-
-Dr. Merwan Roudane (merwanroudane920@gmail.com)
 
 ## License
 GPL-3

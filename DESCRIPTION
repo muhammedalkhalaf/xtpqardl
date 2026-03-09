@@ -7,10 +7,7 @@ Authors@R: c(
     person("Muhammad", "Alkhalaf", 
            email = "muhammedalkhalaf@gmail.com",
            role = c("aut", "cre", "cph"),
-           comment = c(ORCID = "0009-0002-2677-9246")),
-    person("Merwan", "Roudane",
-           role = "ctb",
-           comment = "Original Stata implementation"))
+           comment = c(ORCID = "0009-0002-2677-9246")))
 Description: Estimation of Panel Quantile Autoregressive Distributed Lag 
     (PQARDL) models that combine panel ARDL methodology with quantile 
     regression. Supports Pooled Mean Group (PMG), Mean Group (MG), and 
