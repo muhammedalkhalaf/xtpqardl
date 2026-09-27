@@ -16,7 +16,7 @@ Description: Estimation of Panel Quantile Autoregressive Distributed Lag
     of adjustment, half-life of adjustment, and performs Wald tests for 
     parameter equality across quantiles. Based on the econometric frameworks 
     of Pesaran, Shin, and Smith (1999) <doi:10.1080/01621459.1999.10474156>, 
-    Cho, Kim, and Shin (2015) <doi:10.1016/j.jeconom.2015.02.030>, and 
+    Cho, Kim, and Shin (2015) <doi:10.1016/j.jeconom.2015.05.003>, and 
     Bildirici and Kayikci (2022) <doi:10.1016/j.energy.2022.124303>.
 License: GPL-3
 URL: https://github.com/muhammedalkhalaf/xtpqardl

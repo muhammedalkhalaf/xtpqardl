@@ -37,7 +37,7 @@
 #'
 #' Cho JS, Kim TH, Shin Y (2015). "Quantile Cointegration in the
 #' Autoregressive Distributed-Lag Modeling Framework." \emph{Journal of
-#' Econometrics}, 188(1), 281-300. \doi{10.1016/j.jeconom.2015.02.030}
+#' Econometrics}, 188(1), 281-300. \doi{10.1016/j.jeconom.2015.05.003}
 #'
 #' Bildirici M, Kayikci F (2022). "Uncertainty, Renewable Energy, and CO2
 #' Emissions in Top Renewable Energy Countries: A Panel Quantile Regression
