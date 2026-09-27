@@ -72,8 +72,7 @@ print(irf)
 
 - Bildirici M, Kayikci F (2022). "Uncertainty, Renewable Energy, and CO2 
   Emissions in Top Renewable Energy Countries: A Panel Quantile Regression 
-  Approach." *Energy*, 247, 124303. 
-  [doi:10.1016/j.energy.2022.124303](https://doi.org/10.1016/j.energy.2022.124303)
+  Approach." *Energy*, 247, 124303.
 
 ## Author
 

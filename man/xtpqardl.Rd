@@ -141,7 +141,7 @@ Econometrics}, 188(1), 281-300. \doi{10.1016/j.jeconom.2015.05.003}
 
 Bildirici M, Kayikci F (2022). "Uncertainty, Renewable Energy, and CO2 
 Emissions in Top Renewable Energy Countries: A Panel Quantile Regression 
-Approach." \emph{Energy}, 247, 124303. \doi{10.1016/j.energy.2022.124303}
+Approach." \emph{Energy}, 247, 124303.
 
 Koenker R, Bassett G (1978). "Regression Quantiles." \emph{Econometrica}, 
 46(1), 33-50. \doi{10.2307/1913643}
