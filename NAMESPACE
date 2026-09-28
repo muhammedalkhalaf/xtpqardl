@@ -12,17 +12,19 @@ export(compute_irf)
 export(wald_test)
 export(xtpqardl)
 importFrom(quantreg,rq)
-importFrom(stats,as.formula)
-importFrom(stats,coef)
-importFrom(stats,complete.cases)
-importFrom(stats,cov)
-importFrom(stats,formula)
-importFrom(stats,lm.fit)
-importFrom(stats,model.frame)
-importFrom(stats,model.matrix)
-importFrom(stats,model.response)
-importFrom(stats,na.omit)
-importFrom(stats,pchisq)
-importFrom(stats,pnorm)
-importFrom(stats,terms)
-importFrom(stats,var)
+importFrom(stats,
+  as.formula,
+  coef,
+  complete.cases,
+  cov,
+  formula,
+  lm.fit,
+  model.frame,
+  model.matrix,
+  model.response,
+  na.omit,
+  pchisq,
+  pnorm,
+  terms,
+  var
+)

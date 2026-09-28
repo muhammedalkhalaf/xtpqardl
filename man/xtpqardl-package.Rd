@@ -52,5 +52,15 @@ Approach." \emph{Energy}, 247, 124303.
 Koenker R, Bassett G (1978). "Regression Quantiles." \emph{Econometrica},
 46(1), 33-50. \doi{10.2307/1913643}
 }
-\author{Muhammad Alkhalaf}
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/muhammedalkhalaf/xtpqardl}
+  \item Report bugs at \url{https://github.com/muhammedalkhalaf/xtpqardl/issues}
+}
+
+}
+\author{
+Muhammad Alkhalaf
+}
 \keyword{internal}

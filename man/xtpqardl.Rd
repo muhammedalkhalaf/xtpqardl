@@ -36,7 +36,9 @@ variable name.}
 \item{lr}{Character vector of long-run level variable names. The first 
 element should be the lagged dependent variable level (for the error 
 correction term), and remaining elements are the long-run explanatory 
-variables.}
+variables. The variables enter the regression exactly as supplied (no
+further lag is applied); supply lagged regressors, for example
+\code{L_x1}, if the error correction term should use \eqn{x_{t-1}}.}
 
 \item{tau}{Numeric vector of quantiles to estimate, each in (0,1). 
 Default is \code{c(0.25, 0.50, 0.75)}.}
@@ -67,10 +69,14 @@ An object of class \code{"xtpqardl"} containing:
 \describe{
   \item{beta_mg}{Matrix of mean group long-run coefficients across quantiles}
   \item{rho_mg}{Vector of mean group ECT speed of adjustment by quantile}
-  \item{halflife_mg}{Vector of mean group half-life of adjustment by quantile}
+  \item{halflife_mg}{Half-life \eqn{\ln(0.5)/\ln(1+\rho)} of the mean
+    group speed of adjustment, by quantile}
   \item{sr_mg}{Matrix of mean group short-run coefficients}
   \item{phi_mg}{Matrix of mean group AR coefficients (if p > 1)}
-  \item{beta_V}{Variance-covariance matrix for beta_mg}
+  \item{hausman}{For \code{model = "pmg"}, the Hausman test of long-run
+    homogeneity (MG against PMG): statistic, df and p-value}
+  \item{beta_V}{Variance-covariance matrix for beta_mg (cross-quantile
+    blocks are \code{NA} for PMG and DFE, where they are not estimated)}
   \item{rho_V}{Variance-covariance matrix for rho_mg}
   \item{beta_all}{Matrix of per-panel long-run coefficients}
   \item{rho_all}{Matrix of per-panel ECT coefficients}
@@ -101,10 +107,19 @@ variable. The error correction representation is:
 \phi_{ij} \Delta y_{i,t-j} + \sum_{m=0}^{q-1} \theta_{im} \Delta x_{i,t-m} 
 + \varepsilon_{it}(\tau)}
 
-where \eqn{ECT_{i,t-1} = y_{i,t-1} - \beta(\tau)' X_{i,t-1}} is the error 
-correction term, \eqn{\rho(\tau)} is the speed of adjustment (should be 
-negative for convergence), and \eqn{\beta(\tau)} are the long-run 
-cointegrating parameters.
+where \eqn{ECT = y_{i,t-1} - \beta(\tau)' X} is the error correction term
+built from the \code{lr} variables as supplied, \eqn{\rho(\tau)} is the
+speed of adjustment (negative for convergence), and \eqn{\beta(\tau)} are
+the long-run parameters, \eqn{\beta = -\theta/\rho}.
+
+\code{model = "mg"} averages the panel estimates (Pesaran and Smith
+covariance). \code{model = "pmg"} pools the long run by minimum distance,
+weighting each panel by the inverse of its delta-method covariance, then
+re-estimates every panel with the pooled long run imposed; the speed of
+adjustment and the short run are the mean group of that second stage, and
+a Hausman test of long-run homogeneity (MG against PMG) is returned.
+\code{model = "dfe"} pools all panels with panel intercepts; its standard
+errors come from the Powell kernel sandwich of the quantile regression.
 }
 \examples{
 \donttest{

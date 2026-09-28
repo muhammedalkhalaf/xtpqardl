@@ -254,11 +254,15 @@ print.summary.xtpqardl <- function(x, digits = 4, ...) {
                 row$tau, rho_str, se_str, z_str, p_str, hl_str, row$status))
   }
   cat(rep("-", 78), "\n", sep = "")
-  cat("Half-life = ln(2)/|rho(tau)| - periods to close 50% of disequilibrium\n")
+  cat("Half-life = ln(0.5)/ln(1 + rho(tau)) - periods to close 50% of disequilibrium\n")
+  if (!is.null(x$hausman)) {
+    cat(sprintf("Hausman test of long-run homogeneity (MG vs PMG): chi2(%d) = %.3f, p = %.4f\n",
+                x$hausman$df, x$hausman$statistic, x$hausman$p.value))
+  }
   
   cat("\n")
   cat(rep("=", 78), "\n", sep = "")
-  cat("  XTPQARDL v1.0.1                                    ", x$ardl_order, "\n")
+  cat("  XTPQARDL v", format(utils::packageVersion("xtpqardl")), "    ", x$ardl_order, "\n", sep = "")
   cat(rep("=", 78), "\n", sep = "")
   cat("\n")
   

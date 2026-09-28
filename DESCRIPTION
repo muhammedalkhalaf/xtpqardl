@@ -1,7 +1,7 @@
 Package: xtpqardl
 Type: Package
 Title: Panel Quantile Autoregressive Distributed Lag Model
-Version: 1.0.2
+Version: 1.0.3
 Date: 2026-09-28
 Authors@R: c(
     person("Muhammad", "Alkhalaf", 
@@ -26,8 +26,9 @@ LazyData: true
 Depends: R (>= 3.5.0)
 Imports:
     stats,
+    utils,
     quantreg
 Suggests:
     testthat (>= 3.0.0)
-RoxygenNote: 7.3.3
 Config/testthat/edition: 3
+Config/roxygen2/version: 8.1.0

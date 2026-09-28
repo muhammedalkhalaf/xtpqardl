@@ -15,13 +15,14 @@
 #' @param lr Character vector of long-run level variable names. The first 
 #'   element should be the lagged dependent variable level (for the error 
 #'   correction term), and remaining elements are the long-run explanatory 
-#'   variables.
+#'   variables. The variables enter the regression exactly as supplied (no
+#'   further lag is applied); supply lagged regressors, for example
+#'   \code{L_x1}, if the error correction term should use \eqn{x_{t-1}}.
 #' @param tau Numeric vector of quantiles to estimate, each in (0,1). 
 #'   Default is \code{c(0.25, 0.50, 0.75)}.
 #' @param p Integer specifying the autoregressive lag order for the dependent 
 #'   variable. Default is 1.
 #' @param q Integer or integer vector specifying the distributed lag order(s) 
-
 #'   for explanatory variables. If a single integer, the same lag order is 
 #'   applied to all variables. Default is 1.
 #' @param model Character string specifying the estimation method: 
@@ -38,10 +39,14 @@
 #' \describe{
 #'   \item{beta_mg}{Matrix of mean group long-run coefficients across quantiles}
 #'   \item{rho_mg}{Vector of mean group ECT speed of adjustment by quantile}
-#'   \item{halflife_mg}{Vector of mean group half-life of adjustment by quantile}
+#'   \item{halflife_mg}{Half-life \eqn{\ln(0.5)/\ln(1+\rho)} of the mean
+#'     group speed of adjustment, by quantile}
 #'   \item{sr_mg}{Matrix of mean group short-run coefficients}
 #'   \item{phi_mg}{Matrix of mean group AR coefficients (if p > 1)}
-#'   \item{beta_V}{Variance-covariance matrix for beta_mg}
+#'   \item{hausman}{For \code{model = "pmg"}, the Hausman test of long-run
+#'     homogeneity (MG against PMG): statistic, df and p-value}
+#'   \item{beta_V}{Variance-covariance matrix for beta_mg (cross-quantile
+#'     blocks are \code{NA} for PMG and DFE, where they are not estimated)}
 #'   \item{rho_V}{Variance-covariance matrix for rho_mg}
 #'   \item{beta_all}{Matrix of per-panel long-run coefficients}
 #'   \item{rho_all}{Matrix of per-panel ECT coefficients}
@@ -67,10 +72,19 @@
 #' \phi_{ij} \Delta y_{i,t-j} + \sum_{m=0}^{q-1} \theta_{im} \Delta x_{i,t-m} 
 #' + \varepsilon_{it}(\tau)}
 #'
-#' where \eqn{ECT_{i,t-1} = y_{i,t-1} - \beta(\tau)' X_{i,t-1}} is the error 
-#' correction term, \eqn{\rho(\tau)} is the speed of adjustment (should be 
-#' negative for convergence), and \eqn{\beta(\tau)} are the long-run 
-#' cointegrating parameters.
+#' where \eqn{ECT = y_{i,t-1} - \beta(\tau)' X} is the error correction term
+#' built from the \code{lr} variables as supplied, \eqn{\rho(\tau)} is the
+#' speed of adjustment (negative for convergence), and \eqn{\beta(\tau)} are
+#' the long-run parameters, \eqn{\beta = -\theta/\rho}.
+#'
+#' \code{model = "mg"} averages the panel estimates (Pesaran and Smith
+#' covariance). \code{model = "pmg"} pools the long run by minimum distance,
+#' weighting each panel by the inverse of its delta-method covariance, then
+#' re-estimates every panel with the pooled long run imposed; the speed of
+#' adjustment and the short run are the mean group of that second stage, and
+#' a Hausman test of long-run homogeneity (MG against PMG) is returned.
+#' \code{model = "dfe"} pools all panels with panel intercepts; its standard
+#' errors come from the Powell kernel sandwich of the quantile regression.
 #'
 #' @references
 #' Pesaran MH, Shin Y, Smith RP (1999). "Pooled Mean Group Estimation of 
@@ -207,159 +221,43 @@ xtpqardl <- function(formula, data, id, time, lr,
   # Build ARDL order string
   ardl_order <- paste0("PQARDL(", p, ",", paste(qlags, collapse = ","), ")")
   
-  # Initialize result matrices
   n_sr <- sum(qlags)  # Total short-run coefficients
   n_ar <- max(0, p - 1)  # AR lag coefficients
-  
-  rho_all <- matrix(NA, nrow = n_panels, ncol = ntau)
-  beta_all <- matrix(NA, nrow = n_panels, ncol = k_lr * ntau)
-  halflife_all <- matrix(NA, nrow = n_panels, ncol = ntau)
-  phi_all <- matrix(NA, nrow = n_panels, ncol = n_ar * ntau)
-  sr_all <- matrix(NA, nrow = n_panels, ncol = n_sr * ntau)
-  
-  valid_panels <- 0
-  n_obs <- 0
-  
-  # Panel-by-panel estimation (for PMG and MG)
-  if (model %in% c("pmg", "mg")) {
-    
-    for (i in seq_along(panels)) {
-      panel_id <- panels[i]
-      panel_data <- data[data[[id]] == panel_id, ]
-      
-      # Skip panels with insufficient observations
-      if (nrow(panel_data) < (p + max(qlags) + 5)) {
-        next
-      }
-      
-      # Build regression data for this panel
-      reg_data <- .build_panel_regression(panel_data, depvar, indepvars, lr,
-                                           p, qlags, time, constant)
-      
-      if (is.null(reg_data) || nrow(reg_data$X) < 5) {
-        next
-      }
-      
-      # Estimate quantile regression for each tau
-      for (ti in seq_along(tau)) {
-        tauval <- tau[ti]
-        
-        result <- tryCatch({
-          fit <- quantreg::rq(reg_data$y ~ reg_data$X - 1, tau = tauval)
-          coefs <- coef(fit)
-          names(coefs) <- colnames(reg_data$X)
-          list(coefs = coefs, success = TRUE)
-        }, error = function(e) {
-          list(coefs = NULL, success = FALSE)
-        })
-        
-        if (!result$success) next
-        
-        coefs <- result$coefs
-        
-        # Extract rho (ECT coefficient = coefficient on lr_y)
-        rho_val <- coefs[lr_y]
-        rho_all[i, ti] <- rho_val
-        
-        # Compute half-life
-        if (!is.na(rho_val) && rho_val < 0) {
-          halflife_all[i, ti] <- log(2) / abs(rho_val)
-        }
-        
-        # Extract and compute beta (long-run coefficients)
-        # beta_j = -coef(x_j) / rho
-        for (j in seq_along(lr_x)) {
-          xvar <- lr_x[j]
-          if (xvar %in% names(coefs) && !is.na(rho_val) && abs(rho_val) > 1e-10) {
-            beta_col <- (ti - 1) * k_lr + j
-            beta_all[i, beta_col] <- -coefs[xvar] / rho_val
-          }
-        }
-        
-        # Extract AR coefficients (phi)
-        if (n_ar > 0) {
-          ar_names <- paste0("L", 1:n_ar, ".", depvar)
-          for (j in seq_len(n_ar)) {
-            ar_name <- ar_names[j]
-            if (ar_name %in% names(coefs)) {
-              phi_col <- (ti - 1) * n_ar + j
-              phi_all[i, phi_col] <- coefs[ar_name]
-            }
-          }
-        }
-        
-        # Extract SR coefficients
-        sr_idx <- 0
-        for (j in seq_along(indepvars)) {
-          xvar <- indepvars[j]
-          qj <- qlags[j]
-          for (lag in 0:(qj - 1)) {
-            sr_idx <- sr_idx + 1
-            if (lag == 0) {
-              sr_name <- xvar
-            } else {
-              sr_name <- paste0("L", lag, ".", xvar)
-            }
-            if (sr_name %in% names(coefs)) {
-              sr_col <- (ti - 1) * n_sr + sr_idx
-              sr_all[i, sr_col] <- coefs[sr_name]
-            }
-          }
-        }
-      }
-      
-      valid_panels <- valid_panels + 1
-      n_obs <- n_obs + nrow(reg_data$X)
-    }
-    
-    # Compute mean group estimates
-    rho_mg <- colMeans(rho_all, na.rm = TRUE)
-    beta_mg <- colMeans(beta_all, na.rm = TRUE)
-    halflife_mg <- colMeans(halflife_all, na.rm = TRUE)
-    phi_mg <- if (n_ar > 0) colMeans(phi_all, na.rm = TRUE) else numeric(0)
-    sr_mg <- colMeans(sr_all, na.rm = TRUE)
-    
-    # Compute variance-covariance matrices (MG-style)
-    rho_V <- .compute_mg_variance(rho_all, valid_panels)
-    beta_V <- .compute_mg_variance(beta_all, valid_panels)
-    
+
+  est <- if (model == "dfe") {
+    .estimate_dfe(data, depvar, indepvars, lr, id, time, tau, p, qlags,
+                  constant)
   } else {
-    # DFE estimation
-    result <- .estimate_dfe(data, formula, id, time, lr, tau, p, qlags, constant)
-    
-    rho_mg <- result$rho
-    beta_mg <- result$beta
-    halflife_mg <- result$halflife
-    phi_mg <- result$phi
-    sr_mg <- result$sr
-    rho_V <- result$rho_V
-    beta_V <- result$beta_V
-    n_obs <- result$n_obs
-    valid_panels <- n_panels
+    .estimate_mg_pmg(data, depvar, indepvars, lr, id, time, tau, p, qlags,
+                     constant, pool = (model == "pmg"))
   }
-  
-  # Construct result object
+
+  rho_mg <- est$rho
+  halflife_mg <- .half_life(rho_mg)
+
   result <- list(
-    beta_mg = matrix(beta_mg, nrow = 1),
+    beta_mg = matrix(est$beta, nrow = 1),
     rho_mg = matrix(rho_mg, nrow = 1),
     halflife_mg = matrix(halflife_mg, nrow = 1),
-    sr_mg = matrix(sr_mg, nrow = 1),
-    phi_mg = if (length(phi_mg) > 0) matrix(phi_mg, nrow = 1) else NULL,
-    beta_V = beta_V,
-    rho_V = rho_V,
-    beta_all = beta_all,
-    rho_all = rho_all,
-    halflife_all = halflife_all,
-    phi_all = if (n_ar > 0) phi_all else NULL,
-    sr_all = sr_all,
+    sr_mg = matrix(est$sr, nrow = 1),
+    phi_mg = if (n_ar > 0) matrix(est$phi, nrow = 1) else NULL,
+    beta_V = est$beta_V,
+    rho_V = est$rho_V,
+    beta_all = est$beta_all,
+    rho_all = est$rho_all,
+    halflife_all = if (is.null(est$rho_all)) NULL else
+      matrix(.half_life(est$rho_all), nrow = nrow(est$rho_all)),
+    phi_all = if (n_ar > 0) est$phi_all else NULL,
+    sr_all = est$sr_all,
+    hausman = est$hausman,
     tau = tau,
     p = p,
     q = qlags,
     model = model,
     ardl_order = ardl_order,
-    n_obs = n_obs,
+    n_obs = est$n_obs,
     n_panels = n_panels,
-    valid_panels = valid_panels,
+    valid_panels = est$valid_panels,
     depvar = depvar,
     indepvars = indepvars,
     lrvars = lr,
@@ -369,265 +267,335 @@ xtpqardl <- function(formula, data, id, time, lr,
     constant = constant,
     call = call
   )
-  
+
   class(result) <- "xtpqardl"
   return(result)
 }
 
 
+#' Exact half-life ln(0.5)/ln(1 + rho), defined for -1 < rho < 0
 #' @keywords internal
-.build_panel_regression <- function(panel_data, depvar, indepvars, lr, 
-                                      p, qlags, time, constant) {
-  n <- nrow(panel_data)
-  lr_y <- lr[1]
-  lr_x <- lr[-1]
-  
-  # Check that all required variables exist
+#' @noRd
+.half_life <- function(rho) {
+  out <- rho
+  out[] <- NA_real_
+  ok <- !is.na(rho) & rho < 0 & rho > -1
+  out[ok] <- log(0.5) / log(1 + rho[ok])
+  out
+}
+
+
+#' Lag a vector by k periods (NA padded)
+#' @keywords internal
+#' @noRd
+.lagk <- function(v, k) {
+  if (k == 0) return(v)
+  n <- length(v)
+  if (k >= n) return(rep(NA_real_, n))
+  c(rep(NA_real_, k), v[1:(n - k)])
+}
+
+
+#' Build the per-panel PQARDL regression
+#'
+#' Columns: the long-run variables exactly as supplied in \code{lr} (the
+#' lagged dependent level first), the lagged differences of the dependent
+#' variable (p - 1 of them), and each short-run regressor with lags
+#' 0, ..., q - 1; a constant is appended if requested.
+#' @keywords internal
+#' @noRd
+.build_panel_regression <- function(panel_data, depvar, indepvars, lr,
+                                    p, qlags, time, constant) {
   required_vars <- c(depvar, indepvars, lr)
   if (!all(required_vars %in% names(panel_data))) {
     return(NULL)
   }
-  
-  # Build design matrix
-  # LR variables (levels): lr_y (for ECT) + lr_x
-  # AR lags: L1.depvar, ..., L(p-1).depvar
-  # SR lags: indepvars + their lags up to qlags
-  
-  # Start with maximum lag needed
-  max_lag <- max(p, max(qlags))
-  start_row <- max_lag + 1
-  
-  if (start_row >= n) return(NULL)
-  
-  # Number of usable observations
-  n_use <- n - max_lag
-  
-  # Response variable (current period first difference)
-  y <- panel_data[[depvar]][start_row:n]
-  
-  # Build X matrix
+  n <- nrow(panel_data)
+  y <- panel_data[[depvar]]
   X_list <- list()
-  col_names <- c()
-  
-  # LR variables (levels at t-1 for ECT computation)
+  col_names <- character(0)
+
   for (lv in lr) {
-    # Use value at t-1 relative to y
-    X_list[[length(X_list) + 1]] <- panel_data[[lv]][(start_row - 1):(n - 1)]
+    X_list[[length(X_list) + 1]] <- panel_data[[lv]]
     col_names <- c(col_names, lv)
   }
-  
-  # AR lags (lagged first differences of y)
   if (p > 1) {
     for (lag in 1:(p - 1)) {
-      lag_name <- paste0("L", lag, ".", depvar)
-      X_list[[length(X_list) + 1]] <- panel_data[[depvar]][(start_row - lag):(n - lag)]
-      col_names <- c(col_names, lag_name)
+      X_list[[length(X_list) + 1]] <- .lagk(panel_data[[depvar]], lag)
+      col_names <- c(col_names, paste0("L", lag, ".", depvar))
     }
   }
-  
-  # SR variables and their lags
   for (j in seq_along(indepvars)) {
     xvar <- indepvars[j]
-    qj <- qlags[j]
-    
-    # Contemporary value
-    X_list[[length(X_list) + 1]] <- panel_data[[xvar]][start_row:n]
-    col_names <- c(col_names, xvar)
-    
-    # Lagged values
-    if (qj > 1) {
-      for (lag in 1:(qj - 1)) {
-        lag_name <- paste0("L", lag, ".", xvar)
-        X_list[[length(X_list) + 1]] <- panel_data[[xvar]][(start_row - lag):(n - lag)]
-        col_names <- c(col_names, lag_name)
-      }
+    for (lag in 0:(qlags[j] - 1)) {
+      X_list[[length(X_list) + 1]] <- .lagk(panel_data[[xvar]], lag)
+      col_names <- c(col_names, if (lag == 0) xvar else paste0("L", lag, ".", xvar))
     }
   }
-  
-  # Add constant if requested
   if (constant) {
-    X_list[[length(X_list) + 1]] <- rep(1, n_use)
+    X_list[[length(X_list) + 1]] <- rep(1, n)
     col_names <- c(col_names, "constant")
   }
-  
-  # Combine into matrix
   X <- do.call(cbind, X_list)
   colnames(X) <- col_names
-  
-  # Remove rows with NAs
-  complete_cases <- complete.cases(cbind(y, X))
-  y <- y[complete_cases]
-  X <- X[complete_cases, , drop = FALSE]
-  
-  if (length(y) < 5) return(NULL)
-  
-  return(list(y = y, X = X))
+  ok <- stats::complete.cases(cbind(y, X))
+  y <- y[ok]
+  X <- X[ok, , drop = FALSE]
+  if (length(y) < ncol(X) + 1) return(NULL)
+  list(y = y, X = X)
 }
 
 
+#' Quantile fit with its iid covariance matrix
 #' @keywords internal
-.compute_mg_variance <- function(mat, n_panels) {
-  # Mean Group variance: V(theta_MG) = Var(theta_i) / N
-  if (n_panels <= 1) {
-    return(diag(ncol(mat)) * NA)
-  }
-  
-  # Remove panels with all NAs
-  valid_rows <- apply(mat, 1, function(x) !all(is.na(x)))
-  mat_valid <- mat[valid_rows, , drop = FALSE]
-  
-  if (nrow(mat_valid) <= 1) {
-    return(diag(ncol(mat)) * NA)
-  }
-  
-  # Compute sample variance-covariance and divide by N
-  V <- cov(mat_valid, use = "pairwise.complete.obs") / nrow(mat_valid)
-  
-  # Replace NA/NaN with 0 on diagonal
-  diag_vals <- diag(V)
-  diag_vals[is.na(diag_vals)] <- 0
-  diag(V) <- diag_vals
-  
-  return(V)
+#' @noRd
+.qr_fit_cov <- function(y, X, tau, se = "iid") {
+  fit <- tryCatch(quantreg::rq(y ~ X - 1, tau = tau, method = "br"),
+                  error = function(e) NULL)
+  if (is.null(fit)) return(NULL)
+  b <- stats::coef(fit)
+  names(b) <- colnames(X)
+  V <- tryCatch(suppressWarnings(
+         summary(fit, se = se, covariance = TRUE)$cov),
+       error = function(e) NULL)
+  if (!is.null(V)) dimnames(V) <- list(colnames(X), colnames(X))
+  list(b = b, V = V)
 }
 
 
+#' Mean Group and Pooled Mean Group estimation
+#'
+#' Stage 1 fits the quantile ARDL panel by panel. MG averages the panel
+#' coefficients, with the Pesaran-Smith covariance
+#' \eqn{\sum_i (b_i - \bar b)(b_i - \bar b)' / (N(N-1))}. PMG pools the
+#' long-run coefficients by minimum distance,
+#' \eqn{\beta_P = (\sum_i W_i)^{-1} \sum_i W_i \beta_i} with
+#' \eqn{W_i} the inverse delta-method covariance of \eqn{\beta_i}, and then
+#' re-estimates every panel with \eqn{ECT = lr_y - \beta_P' lr_x} imposed;
+#' the speed of adjustment and the short run are the mean group of this
+#' second stage.
 #' @keywords internal
-.estimate_dfe <- function(data, formula, id, time, lr, tau, p, qlags, constant) {
-  # Dynamic Fixed Effects estimation
-  # Pool all data and estimate with panel fixed effects using quantile regression
-  
+#' @noRd
+.estimate_mg_pmg <- function(data, depvar, indepvars, lr, id, time, tau, p,
+                             qlags, constant, pool) {
   lr_y <- lr[1]
   lr_x <- lr[-1]
-  k_lr <- length(lr_x)
+  kx <- length(lr_x)
   ntau <- length(tau)
-  
-  # Get variable names from formula
-  mf <- model.frame(formula, data = data, na.action = na.omit)
-  depvar <- all.vars(formula)[1]
-  X <- model.matrix(formula, data = mf)
-  if ("(Intercept)" %in% colnames(X)) {
-    X <- X[, colnames(X) != "(Intercept)", drop = FALSE]
-  }
-  indepvars <- colnames(X)
-  k <- length(indepvars)
-  n_sr <- sum(qlags)
   n_ar <- max(0, p - 1)
-  
-  # Create panel dummies
+  n_sr <- sum(qlags)
   panels <- unique(data[[id]])
-  n_panels <- length(panels)
-  
-  # Build full design matrix with lags
-  panel_data_list <- list()
-  
-  for (panel_id in panels) {
-    pdata <- data[data[[id]] == panel_id, ]
-    reg_data <- .build_panel_regression(pdata, depvar, indepvars, lr, 
-                                          p, qlags, time, constant = FALSE)
-    if (!is.null(reg_data)) {
-      df <- data.frame(y = reg_data$y)
-      df <- cbind(df, as.data.frame(reg_data$X))
-      df[[id]] <- panel_id
-      panel_data_list[[length(panel_data_list) + 1]] <- df
+  N <- length(panels)
+
+  regs <- lapply(panels, function(pid) {
+    .build_panel_regression(data[data[[id]] == pid, ], depvar, indepvars,
+                            lr, p, qlags, time, constant)
+  })
+  rest_names <- setdiff(colnames(regs[[which(!vapply(regs, is.null, TRUE))[1]]]$X),
+                        c(lr, "constant"))
+
+  rho_all <- matrix(NA_real_, N, ntau)
+  beta_all <- matrix(NA_real_, N, kx * ntau)
+  rest_all <- matrix(NA_real_, N, length(rest_names) * ntau)
+  beta_Vi <- vector("list", N * ntau)
+  n_obs <- 0
+  valid <- rep(FALSE, N)
+
+  for (i in seq_len(N)) {
+    rd <- regs[[i]]
+    if (is.null(rd)) next
+    for (ti in seq_len(ntau)) {
+      f <- .qr_fit_cov(rd$y, rd$X, tau[ti])
+      if (is.null(f)) next
+      rho <- unname(f$b[lr_y])
+      rho_all[i, ti] <- rho
+      if (abs(rho) > 1e-10) {
+        th <- f$b[lr_x]
+        beta_all[i, (ti - 1) * kx + seq_len(kx)] <- -th / rho
+        if (!is.null(f$V)) {
+          # delta method for beta = -theta / rho
+          G <- cbind(th / rho^2, diag(-1 / rho, kx))
+          Vsub <- f$V[c(lr_y, lr_x), c(lr_y, lr_x)]
+          beta_Vi[[(i - 1) * ntau + ti]] <- G %*% Vsub %*% t(G)
+        }
+      }
+      if (length(rest_names)) {
+        rest_all[i, (ti - 1) * length(rest_names) + seq_along(rest_names)] <-
+          f$b[rest_names]
+      }
     }
+    valid[i] <- TRUE
+    n_obs <- n_obs + length(rd$y)
   }
-  
-  if (length(panel_data_list) == 0) {
-    stop("No valid panel data for DFE estimation")
+
+  mg_mean <- function(M) colMeans(M, na.rm = TRUE)
+  mg_V <- function(M) {
+    M <- M[stats::complete.cases(M), , drop = FALSE]
+    n <- nrow(M)
+    if (n < 2) return(matrix(NA_real_, ncol(M), ncol(M)))
+    D <- sweep(M, 2, colMeans(M))
+    crossprod(D) / (n * (n - 1))
   }
-  
-  pooled_data <- do.call(rbind, panel_data_list)
-  n_obs <- nrow(pooled_data)
-  
-  # Create panel dummies (excluding first for identification)
-  pooled_data[[id]] <- factor(pooled_data[[id]])
-  
-  # Build formula for quantile regression
-  xvars <- setdiff(names(pooled_data), c("y", id))
-  dfe_formula <- as.formula(paste("y ~", paste(xvars, collapse = " + "), 
-                                    "+ factor(", id, ") - 1"))
-  
-  # Initialize results
-  rho <- rep(NA, ntau)
-  beta <- rep(NA, k_lr * ntau)
-  halflife <- rep(NA, ntau)
-  phi <- rep(NA, n_ar * ntau)
-  sr <- rep(NA, n_sr * ntau)
-  
-  # Estimate for each quantile
-  for (ti in seq_along(tau)) {
-    tauval <- tau[ti]
-    
-    fit <- tryCatch({
-      quantreg::rq(dfe_formula, tau = tauval, data = pooled_data)
+
+  beta_mg <- mg_mean(beta_all)
+  beta_V_mg <- mg_V(beta_all)
+  out <- list(beta_all = beta_all, n_obs = n_obs,
+              valid_panels = sum(valid), hausman = NULL)
+
+  if (!pool) {
+    out$beta <- beta_mg
+    out$beta_V <- beta_V_mg
+    out$rho_all <- rho_all
+  } else {
+    beta_P <- rep(NA_real_, kx * ntau)
+    # cross-quantile covariances of the pooled estimates are not estimated
+    beta_VP <- matrix(NA_real_, kx * ntau, kx * ntau)
+    for (ti in seq_len(ntau)) {
+      SW <- matrix(0, kx, kx)
+      SWb <- rep(0, kx)
+      np <- 0
+      for (i in seq_len(N)) {
+        Vi <- beta_Vi[[(i - 1) * ntau + ti]]
+        bi <- beta_all[i, (ti - 1) * kx + seq_len(kx)]
+        if (is.null(Vi) || anyNA(bi) || anyNA(Vi) || any(diag(Vi) <= 0)) next
+        Wi <- tryCatch(solve(Vi), error = function(e) NULL)
+        if (is.null(Wi)) next
+        SW <- SW + Wi
+        SWb <- SWb + Wi %*% bi
+        np <- np + 1
+      }
+      if (np < 2) stop("PMG pooling needs at least two panels with a usable long-run covariance; use model = \"mg\".")
+      VP <- solve(SW)
+      idx <- (ti - 1) * kx + seq_len(kx)
+      beta_P[idx] <- as.numeric(VP %*% SWb)
+      beta_VP[idx, idx] <- VP
+    }
+
+    # Stage 2: impose the pooled long run, re-estimate rho and the short run
+    rho_all2 <- matrix(NA_real_, N, ntau)
+    rest_all <- matrix(NA_real_, N, length(rest_names) * ntau)
+    for (i in seq_len(N)) {
+      rd <- regs[[i]]
+      if (is.null(rd)) next
+      for (ti in seq_len(ntau)) {
+        if (is.na(rho_all[i, ti])) next
+        bP <- beta_P[(ti - 1) * kx + seq_len(kx)]
+        ect <- rd$X[, lr_y] - as.numeric(rd$X[, lr_x, drop = FALSE] %*% bP)
+        X2 <- cbind(ECT = ect, rd$X[, setdiff(colnames(rd$X), lr), drop = FALSE])
+        f <- tryCatch(quantreg::rq.fit(X2, rd$y, tau = tau[ti], method = "br")$coefficients,
+                      error = function(e) NULL)
+        if (is.null(f)) next
+        names(f) <- colnames(X2)
+        rho_all2[i, ti] <- f[["ECT"]]
+        if (length(rest_names)) {
+          rest_all[i, (ti - 1) * length(rest_names) + seq_along(rest_names)] <-
+            f[rest_names]
+        }
+      }
+    }
+    rho_all <- rho_all2
+
+    # Hausman test of long-run homogeneity (MG versus PMG)
+    d <- beta_mg - beta_P
+    VP0 <- beta_VP
+    VP0[is.na(VP0)] <- 0
+    Vd <- beta_V_mg - VP0
+    H <- tryCatch({
+      e <- eigen((Vd + t(Vd)) / 2, symmetric = TRUE)
+      keep <- e$values > 1e-12 * max(abs(e$values))
+      Vinv <- e$vectors[, keep, drop = FALSE] %*%
+        diag(1 / e$values[keep], sum(keep)) %*% t(e$vectors[, keep, drop = FALSE])
+      stat <- as.numeric(t(d) %*% Vinv %*% d)
+      list(statistic = stat, df = sum(keep),
+           p.value = stats::pchisq(stat, sum(keep), lower.tail = FALSE))
     }, error = function(e) NULL)
-    
-    if (is.null(fit)) next
-    
-    coefs <- coef(fit)
-    
-    # Extract rho (ECT coefficient)
-    if (lr_y %in% names(coefs)) {
-      rho[ti] <- coefs[lr_y]
-      
-      if (rho[ti] < 0) {
-        halflife[ti] <- log(2) / abs(rho[ti])
-      }
-      
-      # Compute beta
-      for (j in seq_along(lr_x)) {
-        xvar <- lr_x[j]
-        if (xvar %in% names(coefs) && abs(rho[ti]) > 1e-10) {
-          beta_col <- (ti - 1) * k_lr + j
-          beta[(ti - 1) * k_lr + j] <- -coefs[xvar] / rho[ti]
-        }
-      }
-    }
-    
-    # Extract AR coefficients
-    if (n_ar > 0) {
-      for (j in 1:n_ar) {
-        ar_name <- paste0("L", j, ".", depvar)
-        if (ar_name %in% names(coefs)) {
-          phi[(ti - 1) * n_ar + j] <- coefs[ar_name]
-        }
-      }
-    }
-    
-    # Extract SR coefficients
-    sr_idx <- 0
-    for (j in seq_along(indepvars)) {
-      xvar <- indepvars[j]
-      qj <- qlags[j]
-      for (lag in 0:(qj - 1)) {
-        sr_idx <- sr_idx + 1
-        if (lag == 0) {
-          sr_name <- xvar
-        } else {
-          sr_name <- paste0("L", lag, ".", xvar)
-        }
-        if (sr_name %in% names(coefs)) {
-          sr[(ti - 1) * n_sr + sr_idx] <- coefs[sr_name]
-        }
-      }
+
+    out$beta <- beta_P
+    out$beta_V <- beta_VP
+    out$rho_all <- rho_all
+    out$hausman <- H
+  }
+
+  out$rho <- mg_mean(out$rho_all)
+  out$rho_V <- mg_V(out$rho_all)
+  nr <- length(rest_names)
+  ar_idx <- if (n_ar > 0) seq_len(n_ar) else integer(0)
+  sr_idx <- n_ar + seq_len(n_sr)
+  pick <- function(cols) {
+    if (!length(cols)) return(NULL)
+    unlist(lapply(seq_len(ntau), function(ti) (ti - 1) * nr + cols))
+  }
+  out$phi_all <- if (n_ar > 0) rest_all[, pick(ar_idx), drop = FALSE] else NULL
+  out$sr_all <- rest_all[, pick(sr_idx), drop = FALSE]
+  out$phi <- if (n_ar > 0) mg_mean(out$phi_all) else numeric(0)
+  out$sr <- mg_mean(out$sr_all)
+  out
+}
+
+
+#' Dynamic Fixed Effects estimation
+#'
+#' Pools all panels in one quantile regression with panel-specific
+#' intercepts; the covariance of (rho, beta) is the delta-method transform
+#' of the Powell kernel sandwich covariance of the quantile regression.
+#' @keywords internal
+#' @noRd
+.estimate_dfe <- function(data, depvar, indepvars, lr, id, time, tau, p,
+                          qlags, constant) {
+  lr_y <- lr[1]
+  lr_x <- lr[-1]
+  kx <- length(lr_x)
+  ntau <- length(tau)
+  n_ar <- max(0, p - 1)
+  n_sr <- sum(qlags)
+  panels <- unique(data[[id]])
+
+  Ys <- list(); Xs <- list(); ids <- list()
+  for (pid in panels) {
+    rd <- .build_panel_regression(data[data[[id]] == pid, ], depvar,
+                                  indepvars, lr, p, qlags, time,
+                                  constant = FALSE)
+    if (is.null(rd)) next
+    Ys[[length(Ys) + 1]] <- rd$y
+    Xs[[length(Xs) + 1]] <- rd$X
+    ids[[length(ids) + 1]] <- rep(as.character(pid), length(rd$y))
+  }
+  if (!length(Ys)) stop("No valid panel data for DFE estimation")
+  y <- unlist(Ys)
+  X <- do.call(rbind, Xs)
+  g <- factor(unlist(ids))
+  D <- stats::model.matrix(~ g - 1)
+  XD <- cbind(X, D)
+  rest_names <- setdiff(colnames(X), lr)
+
+  rho <- rep(NA_real_, ntau)
+  beta <- rep(NA_real_, kx * ntau)
+  rest <- matrix(NA_real_, 1, length(rest_names) * ntau)
+  rho_V <- matrix(NA_real_, ntau, ntau)
+  # cross-quantile covariances are not estimated for DFE
+  beta_V <- matrix(NA_real_, kx * ntau, kx * ntau)
+  for (ti in seq_len(ntau)) {
+    f <- .qr_fit_cov(y, XD, tau[ti], se = "ker")
+    if (is.null(f)) next
+    r <- unname(f$b[lr_y])
+    rho[ti] <- r
+    th <- f$b[lr_x]
+    idx <- (ti - 1) * kx + seq_len(kx)
+    beta[idx] <- -th / r
+    rest[1, (ti - 1) * length(rest_names) + seq_along(rest_names)] <- f$b[rest_names]
+    if (!is.null(f$V)) {
+      rho_V[ti, ti] <- f$V[lr_y, lr_y]
+      G <- cbind(th / r^2, diag(-1 / r, kx))
+      beta_V[idx, idx] <- G %*% f$V[c(lr_y, lr_x), c(lr_y, lr_x)] %*% t(G)
     }
   }
-  
-  # Simple variance estimates (from quantreg)
-  rho_V <- diag(ntau) * 0.01  # Placeholder
-  beta_V <- diag(k_lr * ntau) * 0.01  # Placeholder
-  
-  list(
-    rho = rho,
-    beta = beta,
-    halflife = halflife,
-    phi = phi,
-    sr = sr,
-    rho_V = rho_V,
-    beta_V = beta_V,
-    n_obs = n_obs
-  )
+  nr <- length(rest_names)
+  pick <- function(cols) unlist(lapply(seq_len(ntau), function(ti) (ti - 1) * nr + cols))
+  list(rho = rho, beta = beta, rho_V = rho_V, beta_V = beta_V,
+       phi = if (n_ar > 0) rest[, pick(seq_len(n_ar))] else numeric(0),
+       sr = rest[, pick(n_ar + seq_len(n_sr))],
+       rho_all = NULL, beta_all = NULL, phi_all = NULL, sr_all = NULL,
+       n_obs = length(y), valid_panels = length(Ys), hausman = NULL)
 }
 
 
