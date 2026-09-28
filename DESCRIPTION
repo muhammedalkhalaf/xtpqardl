@@ -1,8 +1,8 @@
 Package: xtpqardl
 Type: Package
 Title: Panel Quantile Autoregressive Distributed Lag Model
-Version: 1.0.1
-Date: 2026-02-20
+Version: 1.0.2
+Date: 2026-09-28
 Authors@R: c(
     person("Muhammad", "Alkhalaf", 
            email = "muhammedalkhalaf@gmail.com",
