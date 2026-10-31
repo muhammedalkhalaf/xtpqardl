@@ -46,6 +46,10 @@
 #' Koenker R, Bassett G (1978). "Regression Quantiles." \emph{Econometrica},
 #' 46(1), 33-50. \doi{10.2307/1913643}
 #'
+#' Koenker R, Bassett G (1982). "Robust Tests for Heteroscedasticity Based on
+#' Regression Quantiles." \emph{Econometrica}, 50(1), 43-61.
+#' \doi{10.2307/1912528}
+#'
 #' @author Muhammad Alkhalaf
 #'
 #' @docType package

@@ -18,6 +18,7 @@ print.xtpqardl <- function(x, ...) {
   cat("Dependent var:   ", x$depvar, "\n")
   cat("LR variables:    ", paste(x$lr_x, collapse = ", "), "\n")
   cat("ECT variable:    ", x$lr_y, "\n")
+  cat("Covariance:      ", .cov_label(x), "\n")
   cat(rep("=", 50), "\n\n", sep = "")
   
   cat("Use summary() for detailed results\n")
@@ -163,7 +164,10 @@ summary.xtpqardl <- function(object, ...) {
     lr_table = lr_table,
     ect_table = ect_table,
     beta_mg = x$beta_mg,
-    rho_mg = x$rho_mg
+    rho_mg = x$rho_mg,
+    hausman = x$hausman,
+    cov_label = .cov_label(x),
+    n_dropped = x$n_dropped
   )
   
   class(result) <- "summary.xtpqardl"
@@ -197,7 +201,11 @@ print.summary.xtpqardl <- function(x, digits = 4, ...) {
   cat("ECT variable:    ", x$lr_y, "\n")
   cat("Panels:          ", x$n_panels, " (", x$valid_panels, " valid)\n", sep = "")
   cat("Observations:    ", x$n_obs, "\n")
+  if (!is.null(x$n_dropped) && x$n_dropped > 0) {
+    cat("Rows dropped:    ", x$n_dropped, " (missing response, regressor or lag)\n", sep = "")
+  }
   cat("Quantiles:       ", paste(sprintf("%.2f", x$tau), collapse = ", "), "\n")
+  cat("Covariance:      ", x$cov_label, "\n")
   
   # Table 1: Long-Run Coefficients
   cat("\n")
@@ -254,10 +262,19 @@ print.summary.xtpqardl <- function(x, digits = 4, ...) {
                 row$tau, rho_str, se_str, z_str, p_str, hl_str, row$status))
   }
   cat(rep("-", 78), "\n", sep = "")
-  cat("Half-life = ln(0.5)/ln(1 + rho(tau)) - periods to close 50% of disequilibrium\n")
-  if (!is.null(x$hausman)) {
-    cat(sprintf("Hausman test of long-run homogeneity (MG vs PMG): chi2(%d) = %.3f, p = %.4f\n",
-                x$hausman$df, x$hausman$statistic, x$hausman$p.value))
+  cat("Half-life = ln(0.5)/ln(1 + rho(tau)): periods to close 50% of disequilibrium\n")
+  if (!is.null(x$hausman) && is.data.frame(x$hausman)) {
+    cat("\nHausman test of long-run homogeneity (MG against PMG), by quantile:\n")
+    for (i in seq_len(nrow(x$hausman))) {
+      h <- x$hausman[i, ]
+      if (is.na(h$statistic)) {
+        cat(sprintf("  tau = %.2f: not defined (V(MG) - V(PMG) not positive definite, %d eigenvalue(s) not positive)\n",
+                    h$tau, h$n_nonpositive))
+      } else {
+        cat(sprintf("  tau = %.2f: chi2(%d) = %.3f, p = %.4f%s\n", h$tau, h$df, h$statistic, h$p.value,
+                    if (identical(h$method, "ginv")) " (generalised inverse)" else ""))
+      }
+    }
   }
   
   cat("\n")
@@ -354,4 +371,19 @@ vcov.xtpqardl <- function(object, type = c("beta", "rho"), ...) {
     }
     return(V)
   }
+}
+
+
+#' One-line description of the covariance estimator of a fit
+#' @keywords internal
+#' @noRd
+.cov_label <- function(x) {
+  switch(x$model,
+         dfe = sprintf("Koenker and Bassett (1982) joint matrix, dfe_cov = \"%s\"%s",
+                       x$dfe_cov,
+                       if (isTRUE(x$cross_quantile_cov)) "" else " (some blocks NA)"),
+         mg = "Pesaran-Smith mean group",
+         pmg = sprintf("inverse-variance pooling (%s weights); rho: Pesaran-Smith",
+                       if (identical(x$pmg_weights, "equal")) "equal" else "inverse-variance"),
+         "unknown")
 }

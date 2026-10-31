@@ -1,0 +1,15 @@
+# Derivation ledger: `wald_test()` and `compute_irf()` (xtpqardl 1.0.5)
+
+Copied from the audit ledger of 1.0.4 and updated to the corrected code (`R/wald_test.R`). Verification names the testthat test in tests/testthat/test-fixes-1-0-5.R.
+
+| Paper equation / page | Mathematical expression | Code file:line | Convention adopted | Source of convention | Verification status |
+|---|---|---|---|---|---|
+| Wald statistic W = (R theta)'[R V R']^{-1}(R theta), chi2(rank R) | R: theta_j(tau_i) - theta_j(tau_1), i = 2..m | wald_test.R:200-328 (`.wald_test_equality`) | reference quantile the first; df k(m-1) or m-1; rcond < 1e-12 guard; NA when V has NA | package choice | arithmetic unchanged from 1.0.4 (audit reproduced it by hand); V is now the consistent matrix of `ledger_xtpqardl.md` Section B |
+| V for DFE | joint KB matrix, one estimator (`dfe_cov`) | xtpqardl.R:1115-1161 | iid default | paper (KB Theorem 3.1) | "DFE joint covariance ... hand-built" at 1e-10; size re-run in FIX_SUMMARY.md |
+| V for MG | Pesaran-Smith covariance of the stacked panel estimates | xtpqardl.R:859-867 | consistent for large N | paper (PSS) | unchanged |
+| V for PMG | cross-quantile blocks NA by construction | xtpqardl.R:886 | `beta_test` not available for PMG (documented) | package choice | unchanged |
+| KB (1982) equality tests: Tn = (D b)'(D W D')^{-1}(D b)/ndf, W_ab = (min(tau_a,tau_b) - tau_a tau_b) H_a^{-1} X'X H_b^{-1}, D = consecutive differences, F(ndf, nm - ndf) | same, with W = `dfe_coef_V` and D restricted to the economic slopes (`dfe_slopes`) by default, or to all non-intercept columns with `all = TRUE` | wald_test.R:157-196 (`.kb_tests`) | default restriction set = rho, theta, short run (ndf = k(m-1)); `all = TRUE` = quantreg's set including the N-1 panel contrasts | package choice (the stated hypothesis); the F reference is quantreg's | "Koenker-Bassett joint test restricts only the economic slopes by default": ndf = 3(m-1), ddf = nm - ndf, Tn equals the hand quadratic form at 1e-10; `all = TRUE` gives ndf = 7(m-1); test-wald-pmg-inputs.R: with `dfe_cov = "nid"` and `all = TRUE` joint and individual rows equal `quantreg::anova(..., se = "nid")` at 1e-6 (observed 1e-14) |
+| Individual KB tests | one row per restricted coefficient, ndf = m-1, ddf = nm - (m-1) | wald_test.R:183-185 | rows for the dummies only with `all = TRUE`, labelled by panel id | package | same tests |
+| CKS (2015) Theorem 1(ii) (quoted sentence in the library copy; page numbers not verifiable from the text file): rank-one covariance of gamma, rank(R) = 1 | documented in `xtpqardl` and `wald_test` Details | wald_test.R:69-84 (roxygen), xtpqardl.R:199-214 | joint test with k_x > 1 relies on finite-sample full rank; individual rows are rank m-1 in the quantile direction | paper | documentation only |
+| compute_irf: (1 + rho)^t | same | wald_test.R:537 | -2 < rho < 0, oscillating range documented | package | by reading |
+| print method | no text arrows | wald_test.R:371-376, 422-427 | | | "Koenker-Bassett joint test ..." and "covariance estimator switches ..." tests grep the printed output |

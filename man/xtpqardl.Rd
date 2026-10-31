@@ -17,52 +17,94 @@ xtpqardl(
   lagsel = NULL,
   pmax = 4,
   qmax = 4,
-  constant = TRUE
+  constant = TRUE,
+  pmg_weights = c("inverse_variance", "equal"),
+  dfe_cov = c("iid", "nid", "ker"),
+  allow_gaps = FALSE,
+  hausman = c("strict", "ginv")
 )
 }
 \arguments{
-\item{formula}{A formula specifying the model. The response variable should 
-be in first differences (e.g., \code{d.y ~ d.x1 + d.x2}), where short-run 
-dynamics are estimated.}
+\item{formula}{A formula specifying the model. The response variable should
+be in first differences (e.g., \code{d.y ~ d.x1 + d.x2}), where short-run
+dynamics are estimated. Transformations such as \code{log(x)},
+\code{I(x^2)} and interactions \code{a:b} are expanded with
+\code{model.matrix} before the lags are built, so the lag orders in
+\code{q} refer to the columns of the expanded design (in the order of
+\code{colnames(model.matrix(formula, data))} without the intercept).}
 
-\item{data}{A data frame containing panel data with variables specified in 
+\item{data}{A data frame containing panel data with variables specified in
 the formula and \code{lr} argument.}
 
-\item{id}{Character string specifying the panel (cross-section) identifier 
+\item{id}{Character string specifying the panel (cross-section) identifier
 variable name.}
 
-\item{time}{Character string specifying the time variable name.}
+\item{time}{Character string specifying the time variable name. It must be
+numeric (for example the year as an integer). Lags are built by matching
+\code{time - j} within each panel, never by row position; see Details.}
 
-\item{lr}{Character vector of long-run level variable names. The first 
-element should be the lagged dependent variable level (for the error 
-correction term), and remaining elements are the long-run explanatory 
+\item{lr}{Character vector of long-run level variable names. The first
+element should be the lagged dependent variable level (for the error
+correction term), and remaining elements are the long-run explanatory
 variables. The variables enter the regression exactly as supplied (no
 further lag is applied); supply lagged regressors, for example
-\code{L_x1}, if the error correction term should use \eqn{x_{t-1}}.}
+\code{L_x1}, if the error correction term should use \eqn{x_{t-1}}.
+The names must be columns of \code{data} (no transformations).}
 
-\item{tau}{Numeric vector of quantiles to estimate, each in (0,1). 
+\item{tau}{Numeric vector of quantiles to estimate, each in (0,1).
 Default is \code{c(0.25, 0.50, 0.75)}.}
 
-\item{p}{Integer specifying the autoregressive lag order for the dependent 
+\item{p}{Integer specifying the autoregressive lag order for the dependent
 variable. Default is 1.}
 
-\item{q}{Integer or integer vector specifying the distributed lag order(s) 
-for explanatory variables. If a single integer, the same lag order is 
+\item{q}{Integer or integer vector specifying the distributed lag order(s)
+for explanatory variables. If a single integer, the same lag order is
 applied to all variables. Default is 1.}
 
-\item{model}{Character string specifying the estimation method: 
-\code{"pmg"} for Pooled Mean Group (default), \code{"mg"} for Mean Group, 
+\item{model}{Character string specifying the estimation method:
+\code{"pmg"} for Pooled Mean Group (default), \code{"mg"} for Mean Group,
 or \code{"dfe"} for Dynamic Fixed Effects.}
 
-\item{lagsel}{Character string for automatic lag selection. If \code{"bic"} 
-or \code{"aic"}, optimal lag orders are selected using the specified 
-criterion. Default is \code{NULL} (no automatic selection).}
+\item{lagsel}{Character string for automatic lag selection. If \code{"bic"}
+or \code{"aic"}, the lag orders are selected by least squares on the
+panel regressions, see Details. Default is \code{NULL} (no automatic
+selection).}
 
 \item{pmax}{Maximum p to consider in lag selection. Default is 4.}
 
 \item{qmax}{Maximum q to consider in lag selection. Default is 4.}
 
 \item{constant}{Logical. Include a constant term? Default is \code{TRUE}.}
+
+\item{pmg_weights}{Character, for \code{model = "pmg"} only.
+\code{"inverse_variance"} (default) weights each panel's long-run
+estimate by the inverse of its delta-method covariance, as described in
+Details; it requires that covariance to be estimable for at least two
+panels per quantile. \code{"equal"} pools with equal weights (the pooled
+long run is then the simple average of the panel estimates and its
+covariance the mean-group covariance); use it when the panels are too
+short for the covariances to be estimated.}
+
+\item{dfe_cov}{Character, for \code{model = "dfe"} only: the estimator of
+the joint (all quantiles) covariance matrix of the pooled quantile
+regression coefficients. \code{"iid"} (default) is the Koenker and
+Bassett (1982, Theorem 3.1) form with the scalar sparsity estimate of
+\code{summary.rq(se = "iid")}; \code{"nid"} uses the Hendricks-Koenker
+local densities of \code{summary.rq(se = "nid")}; \code{"ker"} the
+Powell kernel densities of \code{summary.rq(se = "ker")}. One estimator
+is used for every block of the matrix; see Details for the choice.}
+
+\item{allow_gaps}{Logical. If \code{FALSE} (default) the function stops
+when a panel has a gap in \code{time}. If \code{TRUE} the panels with
+gaps are kept: lags are matched by the time index, and a row whose
+lagged period is missing is dropped from that panel's regression.}
+
+\item{hausman}{Character, for \code{model = "pmg"} only: \code{"strict"}
+(default) returns \code{NA} with a warning when the difference
+\eqn{V(MG) - V(PMG)} is not positive definite; \code{"ginv"} inverts it
+with a Moore-Penrose inverse over the eigenvalues larger than
+\code{1e-8} times the largest, with degrees of freedom equal to that
+rank, and warns.}
 }
 \value{
 An object of class \code{"xtpqardl"} containing:
@@ -73,11 +115,31 @@ An object of class \code{"xtpqardl"} containing:
     group speed of adjustment, by quantile}
   \item{sr_mg}{Matrix of mean group short-run coefficients}
   \item{phi_mg}{Matrix of mean group AR coefficients (if p > 1)}
-  \item{hausman}{For \code{model = "pmg"}, the Hausman test of long-run
-    homogeneity (MG against PMG): statistic, df and p-value}
-  \item{beta_V}{Variance-covariance matrix for beta_mg (cross-quantile
-    blocks are \code{NA} for PMG and DFE, where they are not estimated)}
+  \item{hausman}{For \code{model = "pmg"}, a data frame with one row per
+    quantile: the Hausman test of long-run homogeneity (MG against PMG)
+    at that quantile, with \code{statistic}, \code{df}, \code{p.value},
+    the number of non-positive eigenvalues of the difference matrix and
+    the method used}
+  \item{beta_V}{Variance-covariance matrix for beta_mg. For MG and DFE the
+    full matrix is estimated (for DFE every block comes from the estimator
+    named in \code{dfe_cov}, see Details); for PMG the cross-quantile
+    blocks are \code{NA}}
   \item{rho_V}{Variance-covariance matrix for rho_mg}
+  \item{dfe_cov}{For \code{model = "dfe"}, the covariance estimator used
+    (\code{"iid"}, \code{"nid"} or \code{"ker"})}
+  \item{dfe_coef}{For \code{model = "dfe"}, the matrix of pooled
+    quantile-regression coefficients (rows: coefficients, columns: tau)}
+  \item{dfe_coef_V}{For \code{model = "dfe"}, the joint covariance matrix
+    of \code{dfe_coef} stacked by quantile, used by
+    \code{\link{wald_test}} for the Koenker-Bassett tests}
+  \item{dfe_slopes}{For \code{model = "dfe"}, the names of the economic
+    slopes (speed of adjustment, long-run levels, short run), as opposed
+    to the intercept and the panel-intercept contrasts}
+  \item{rq_fits}{For \code{model = "dfe"}, the list of \code{rq} fits (one
+    per quantile) of the pooled regression}
+  \item{panel_cov_status}{A data frame with one row per panel and quantile
+    (MG, PMG) or per quantile (DFE) reporting whether the covariance
+    could be estimated, which estimator was used and why not}
   \item{beta_all}{Matrix of per-panel long-run coefficients}
   \item{rho_all}{Matrix of per-panel ECT coefficients}
   \item{halflife_all}{Matrix of per-panel half-life values}
@@ -86,6 +148,8 @@ An object of class \code{"xtpqardl"} containing:
   \item{q}{Distributed lag order(s) used}
   \item{model}{Estimation method used}
   \item{n_obs}{Total number of observations}
+  \item{n_dropped}{Number of rows dropped because a regressor, the
+    response or a lag was missing}
   \item{n_panels}{Number of panels}
   \item{valid_panels}{Number of successfully estimated panels}
   \item{depvar}{Dependent variable name}
@@ -94,32 +158,126 @@ An object of class \code{"xtpqardl"} containing:
 }
 }
 \description{
-Estimate Panel Quantile ARDL (PQARDL) models that combine panel ARDL 
-methodology with quantile regression. Supports Pooled Mean Group (PMG), 
+Estimate Panel Quantile ARDL (PQARDL) models that combine panel ARDL
+methodology with quantile regression. Supports Pooled Mean Group (PMG),
 Mean Group (MG), and Dynamic Fixed Effects (DFE) estimators.
 }
 \details{
-The PQARDL model extends the standard panel ARDL framework to allow for 
-heterogeneous effects across the conditional distribution of the response 
+The PQARDL model extends the standard panel ARDL framework to allow for
+heterogeneous effects across the conditional distribution of the response
 variable. The error correction representation is:
 
-\deqn{\Delta y_{it} = \rho_i(\tau) \cdot ECT_{i,t-1} + \sum_{j=1}^{p-1} 
-\phi_{ij} \Delta y_{i,t-j} + \sum_{m=0}^{q-1} \theta_{im} \Delta x_{i,t-m} 
+\deqn{\Delta y_{it} = \rho_i(\tau) \cdot ECT_{i,t-1} + \sum_{j=1}^{p-1}
+\phi_{ij} \Delta y_{i,t-j} + \sum_{m=0}^{q-1} \theta_{im} \Delta x_{i,t-m}
 + \varepsilon_{it}(\tau)}
 
 where \eqn{ECT = y_{i,t-1} - \beta(\tau)' X} is the error correction term
 built from the \code{lr} variables as supplied, \eqn{\rho(\tau)} is the
 speed of adjustment (negative for convergence), and \eqn{\beta(\tau)} are
-the long-run parameters, \eqn{\beta = -\theta/\rho}.
+the long-run parameters, \eqn{\beta = -\theta/\rho} (the plug-in estimator
+of Cho, Kim and Shin 2015, equation (3)).
+
+\strong{Lags, gaps and missing values.} Within each panel the lag
+\eqn{j} of a variable at time \eqn{t} is the value at time \eqn{t - j},
+where the unit step is the smallest positive time difference in the data.
+Duplicated (\code{id}, \code{time}) pairs are an error. A gap in a panel's
+time index is an error unless \code{allow_gaps = TRUE}, in which case the
+rows whose lagged period is missing are dropped. Rows with a missing value
+in the response, a regressor or a lag are dropped panel by panel (the
+leading rows lost to the user's own differencing and lagging are the
+usual case); the number of dropped rows is returned in \code{n_dropped}.
+Exactly collinear regressors stop with an error naming the columns.
 
 \code{model = "mg"} averages the panel estimates (Pesaran and Smith
-covariance). \code{model = "pmg"} pools the long run by minimum distance,
-weighting each panel by the inverse of its delta-method covariance, then
-re-estimates every panel with the pooled long run imposed; the speed of
-adjustment and the short run are the mean group of that second stage, and
-a Hausman test of long-run homogeneity (MG against PMG) is returned.
-\code{model = "dfe"} pools all panels with panel intercepts; its standard
-errors come from the Powell kernel sandwich of the quantile regression.
+covariance \eqn{\sum_i (b_i - \bar b)(b_i - \bar b)'/(N(N-1))}). With fewer
+than three panels this covariance is unreliable (with N = 2 the audit's
+Monte Carlo rejected 26 to 31 percent at nominal 5 percent) and the
+function warns. \code{model = "pmg"} pools the long run by minimum
+distance, weighting each panel by the inverse of its delta-method
+covariance, then re-estimates every panel with the pooled long run
+imposed; the speed of adjustment and the short run are the mean group of
+that second stage. A Hausman test of long-run homogeneity (MG against PMG)
+is computed quantile by quantile; the statistic is \eqn{d'(V_{MG} -
+V_{PMG})^{-1} d} with \eqn{d} the difference of the long-run estimates at
+that quantile. The quadratic form is defined only when the difference
+matrix is positive definite (Hausman 1978 gives non-negative definiteness
+asymptotically); see \code{hausman}.
+
+\strong{DFE covariance.} \code{model = "dfe"} pools all panels in one
+quantile regression per quantile with an intercept and \eqn{N - 1}
+panel-intercept contrasts. All quantiles share the design \eqn{X}, so the
+joint covariance of the coefficient vectors \eqn{b(\tau_a)}, \eqn{b(\tau_b)}
+is estimated by one formula for every block, with the estimator named in
+\code{dfe_cov}:
+\deqn{Cov(b(\tau_a), b(\tau_b)) = (\min(\tau_a,\tau_b) - \tau_a\tau_b)
+H_a^{-1} (X'X) H_b^{-1}.}
+With \code{"iid"} (default) \eqn{H_a^{-1} = s(\tau_a) (X'X)^{-1}}, where
+\eqn{s(\tau) = 1/f(F^{-1}(\tau))} is the sparsity estimated as in
+\code{summary.rq(se = "iid")}; this is Theorem 3.1 of Koenker and Bassett
+(1982), whose covariance has typical element
+\eqn{[\min(u_i,u_j) - u_i u_j]/(f(Q(u_i)) f(Q(u_j)))} times
+\eqn{D^{-1} = \lim (X'X/n)^{-1}}, under i.i.d. errors. With \code{"nid"}
+and \code{"ker"}, \eqn{H_\tau = X' diag(f_i(\tau)) X} with the local density
+estimates of \code{summary.rq(se = "nid")} (Hendricks-Koenker) or
+\code{summary.rq(se = "ker")} (Powell kernel), including quantreg's
+bandwidth rule (the bandwidth is halved while \eqn{\tau \pm h} leaves
+(0, 1)). The diagonal blocks equal \code{summary.rq(se = dfe_cov)$cov}.
+The default is \code{"iid"} because in the audit of version 1.0.4 (panel
+designs with N = 5 to 20, T = 20 to 40, i.i.d. errors) the
+Hendricks-Koenker densities under-stated the variance of the speed of
+adjustment by 23 to 55 percent in the presence of the panel intercepts
+(Monte Carlo variance 0.00161 against a mean "nid" estimate 0.00072 at
+N = 20, T = 40), so that the "nid" equality tests rejected 9 to 23 percent
+at nominal 5 percent for N at most 10 and 47 to 76 percent at N = 20,
+whereas the "iid" form rejected 4.3, 5.0 and 7.0 percent in the three
+designs checked. For the default in the N = 10, T = 40, k = 1 design (iid
+errors, nominal 5 percent) \code{rho_test} rejected between 6 and 9 percent
+in two independent Monte Carlo batches (R = 200 and R = 500); a third batch
+(R = 300) gave 5.7 percent. The test is therefore mildly over-sized in that
+cell, against 1.2 percent with the 1.0.4 mixed matrix. \code{"nid"} and \code{"ker"} remain available for users
+who need them; they are not recommended for the cross-quantile tests of
+panels with many intercepts. The same joint matrix is the basis of the
+Koenker-Bassett tests of \code{\link{wald_test}}; if the estimator fails
+for a quantile (for example an extreme quantile in a small sample), the
+affected blocks are \code{NA} and a warning names the quantile and the
+reason. The standard errors of \eqn{\rho} and \eqn{\beta} come from the
+diagonal blocks and the delta method.
+
+\strong{Rank of the covariance of theta.} Cho, Kim and Shin (2015, Theorem
+1(ii)) show that under their normalisation the asymptotic covariance of
+the long-run level coefficients \eqn{\gamma(\tau)} (\code{theta} here, the
+coefficients of \code{lr[-1]}) has rank one, and they restrict their Wald
+tests on \eqn{\gamma} to restriction matrices of rank one, because a
+higher rank gives a degenerate null distribution. The finite-sample
+sandwich blocks for \eqn{\theta} used here are of full rank, so a joint
+test that restricts several \eqn{\theta} coefficients at once (as the
+Koenker-Bassett joint test of \code{\link{wald_test}} does when
+\eqn{k_x > 1}) relies on finite-sample full rank of a matrix whose limit
+is singular under their assumptions. See \code{\link{wald_test}} for the
+size numbers. Tests on a single \eqn{\theta_j} across quantiles (the
+individual rows) are of rank \eqn{m - 1} in the quantile direction.
+
+\strong{Lag selection.} \code{lagsel} fits every (p, q) combination with
+\eqn{p \le} \code{pmax}, \eqn{q \le} \code{qmax} (the same q for all
+regressors) by least squares (\code{lm.fit}) panel by panel, sums the
+residual sums of squares and the sample sizes over panels, and penalises
+the total number of estimated coefficients (the sum over the panels of the
+columns of their regressions): \eqn{BIC = n \log(RSS/n) + K \log n},
+\eqn{AIC = n \log(RSS/n) + 2K}. The criterion is least squares, not the
+quantile check loss, and applies to the mean regression.
+
+\strong{Short panels.} Each panel regression has \eqn{1 + k_x + (p-1) +
+\sum q + 1} coefficients. When \eqn{T} is close to that number the
+covariance of the panel estimates cannot be estimated by
+\code{summary.rq(se = "iid")} (its sparsity estimate needs the quantiles at
+\eqn{\tau \pm h}); the function then tries the other \code{summary.rq}
+estimators and finally an iid formula with a kernel density estimate of
+the sparsity, and warns once naming how many panel-quantile pairs switched
+and to which estimator (details in \code{panel_cov_status}). If no
+covariance is available for at least two panels, PMG stops with a message
+listing the status of every panel; \code{pmg_weights = "equal"} or a
+smaller model are the alternatives. Panels dropped from the PMG pooling
+because their covariance is not invertible are named in a warning.
 }
 \examples{
 \donttest{
@@ -146,18 +304,25 @@ wald_test(fit)
 
 }
 \references{
-Pesaran MH, Shin Y, Smith RP (1999). "Pooled Mean Group Estimation of 
-Dynamic Heterogeneous Panels." \emph{Journal of the American Statistical 
+Pesaran MH, Shin Y, Smith RP (1999). "Pooled Mean Group Estimation of
+Dynamic Heterogeneous Panels." \emph{Journal of the American Statistical
 Association}, 94(446), 621-634. \doi{10.1080/01621459.1999.10474156}
 
-Cho JS, Kim TH, Shin Y (2015). "Quantile Cointegration in the 
-Autoregressive Distributed-Lag Modeling Framework." \emph{Journal of 
+Cho JS, Kim TH, Shin Y (2015). "Quantile Cointegration in the
+Autoregressive Distributed-Lag Modeling Framework." \emph{Journal of
 Econometrics}, 188(1), 281-300. \doi{10.1016/j.jeconom.2015.05.003}
 
-Bildirici M, Kayikci F (2022). "Uncertainty, Renewable Energy, and CO2 
-Emissions in Top Renewable Energy Countries: A Panel Quantile Regression 
+Bildirici M, Kayikci F (2022). "Uncertainty, Renewable Energy, and CO2
+Emissions in Top Renewable Energy Countries: A Panel Quantile Regression
 Approach." \emph{Energy}, 247, 124303.
 
-Koenker R, Bassett G (1978). "Regression Quantiles." \emph{Econometrica}, 
+Hausman JA (1978). "Specification Tests in Econometrics."
+\emph{Econometrica}, 46(6), 1251-1271. \doi{10.2307/1913827}
+
+Koenker R, Bassett G (1978). "Regression Quantiles." \emph{Econometrica},
 46(1), 33-50. \doi{10.2307/1913643}
+
+Koenker R, Bassett G (1982). "Robust Tests for Heteroscedasticity Based on
+Regression Quantiles." \emph{Econometrica}, 50(1), 43-61.
+\doi{10.2307/1912528}
 }

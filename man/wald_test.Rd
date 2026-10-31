@@ -5,9 +5,9 @@
 \alias{wald_test.xtpqardl}
 \title{Wald Test for Parameter Equality Across Quantiles}
 \usage{
-wald_test(object, joint = TRUE)
+wald_test(object, joint = TRUE, all = FALSE)
 
-\method{wald_test}{xtpqardl}(object, joint = TRUE)
+\method{wald_test}{xtpqardl}(object, joint = TRUE, all = FALSE)
 }
 \arguments{
 \item{object}{An object of class \code{"xtpqardl"}.}
@@ -15,6 +15,14 @@ wald_test(object, joint = TRUE)
 \item{joint}{Logical. If \code{TRUE} (default), performs joint test for
 all coefficients. If \code{FALSE}, performs individual tests for each
 variable.}
+
+\item{all}{Logical, for \code{model = "dfe"} only. If \code{FALSE}
+(default) the Koenker-Bassett tests in \code{kb_test} restrict only the
+economic slopes of the pooled regression (speed of adjustment, long-run
+levels, short run). If \code{TRUE} they restrict every non-intercept
+coefficient, including the \eqn{N - 1} panel-intercept contrasts, which
+is what \code{quantreg::anova(..., joint = TRUE)} does on the equivalent
+regression \code{y ~ slopes + factor(id)}.}
 }
 \value{
 An object of class \code{"wald_test.xtpqardl"} containing:
@@ -22,6 +30,15 @@ An object of class \code{"wald_test.xtpqardl"} containing:
   \item{beta_test}{Wald test result for long-run coefficients}
   \item{rho_test}{Wald test result for ECT coefficients}
   \item{individual_beta}{Individual tests for each long-run variable (if joint = FALSE)}
+  \item{kb_test}{For \code{model = "dfe"}: Koenker and Bassett (1982)
+    equality tests across quantiles on the pooled quantile-regression
+    coefficients, computed from the joint covariance \code{dfe_coef_V}
+    (estimator \code{dfe_cov} of the fit): \code{joint} (one row: F
+    statistic, numerator and denominator degrees of freedom, p-value) and
+    \code{individual} (one row per restricted coefficient), the names of
+    the restricted coefficients in \code{restricted}, the estimator in
+    \code{se} and whether the panel contrasts were included in
+    \code{all}. \code{NULL} for MG and PMG.}
   \item{tau}{Quantiles tested}
 }
 }
@@ -36,11 +53,55 @@ The Wald test statistic is computed as:
 
 where \eqn{\theta} is the vector of coefficients, \eqn{V} is the
 variance-covariance matrix, and \eqn{R} is a restriction matrix testing
-equality of coefficients across quantiles.
-
-Under the null hypothesis of equal coefficients, \eqn{W} follows a
+equality of coefficients across quantiles (each quantile against the
+first). Under the null hypothesis of equal coefficients, \eqn{W} follows a
 chi-squared distribution with degrees of freedom equal to the number of
-restrictions.
+restrictions. For MG the covariance is the Pesaran-Smith between-panel
+covariance of the stacked panel estimates; for DFE it is the joint
+covariance described in \code{\link{xtpqardl}} (one estimator for every
+block, named in \code{dfe_cov}); for PMG the cross-quantile blocks are not
+estimated and \code{beta_test} is not available.
+
+\strong{Koenker-Bassett tests (DFE).} \code{kb_test} applies the same
+restriction scheme to the pooled quantile-regression coefficients
+themselves (rho, theta, short run) with the joint covariance
+\eqn{W = [(\min(\tau_a,\tau_b) - \tau_a\tau_b) H_a^{-1} X'X H_b^{-1}]_{ab}}
+of \code{\link{xtpqardl}} (Koenker and Bassett 1982, Theorem 3.1, with
+the estimator chosen by \code{dfe_cov}). As in \code{quantreg::anova} the
+statistic is reported as \eqn{T_n/ndf} against an F distribution with
+\eqn{ndf} restrictions and \eqn{ddf = nm - ndf} denominator degrees of
+freedom (\eqn{n} observations, \eqn{m} quantiles); with
+\code{dfe_cov = "nid"} and \code{all = TRUE} the joint and individual
+rows reproduce \code{anova(rq_1, ..., rq_m, se = "nid")} on the
+equivalent regression with \code{factor(id)}. With the default
+\code{all = FALSE} the joint test has \eqn{ndf = k (m - 1)} where \eqn{k}
+is the number of economic slopes, so the hypothesis is the one stated in
+the printout, and the \eqn{N - 1} contrasts (whose equality across
+quantiles is of no economic interest and dilutes the test) are not
+restricted.
+
+\strong{Rank of the theta covariance.} Cho, Kim and Shin (2015, Theorem
+1(ii)) show that the asymptotic covariance of the long-run level
+coefficients \eqn{\gamma(\tau)} (theta) has rank one under their
+normalisation. In their words, "has a rank equal to unity by Theorem 1(ii).
+This implies that, if R has a rank greater than unity, the corresponding
+Wald test has a degenerate asymptotic null distribution." (the page numbers
+of that passage are not given here; the library copy has no page markers).
+The individual rows of \code{kb_test} for each theta coefficient restrict
+one coefficient across quantiles; the joint test with more than one
+long-run regressor restricts several theta coefficients at once and relies
+on the finite-sample full rank of their sandwich covariance.
+
+The audit's Monte Carlo is consistent with this concern, but does not
+isolate it. In the \code{kb_joint_all} column of its size grid (nid
+estimator, all non-intercept coefficients restricted, iid N(0,1) errors,
+N = 5, T = 20, R = 500) the rejection rate at nominal 5 percent was 16.2
+percent with one long-run regressor and 23.2 percent with two. The two
+designs also differ in the number of restrictions and the nid density
+bias documented in the audit is a confounder, so the increase should be
+read as consistent with, not as evidence for, the rank argument. The
+long-run beta = -theta/rho is tested in \code{beta_test}, with the delta
+method.
 }
 \examples{
 \donttest{
@@ -58,6 +119,11 @@ wald_test(fit)
 
 }
 \references{
-Koenker R, Bassett G (1982). "Tests of Linear Hypotheses and L1 Estimation."
-\emph{Econometrica}, 50(6), 1577-1583. \doi{10.2307/1913398}
+Cho JS, Kim TH, Shin Y (2015). "Quantile Cointegration in the
+Autoregressive Distributed-Lag Modeling Framework." \emph{Journal of
+Econometrics}, 188(1), 281-300. \doi{10.1016/j.jeconom.2015.05.003}
+
+Koenker R, Bassett G (1982). "Robust Tests for Heteroscedasticity Based on
+Regression Quantiles." \emph{Econometrica}, 50(1), 43-61.
+\doi{10.2307/1912528}
 }

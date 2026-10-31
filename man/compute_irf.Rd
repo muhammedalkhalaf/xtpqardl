@@ -26,8 +26,11 @@ The IRF for the error correction model is computed as:
 \deqn{IRF_t(\tau) = (1 + \rho(\tau))^t}
 
 which shows the decay of a unit shock over time through the error
-correction mechanism. Values approach zero as \eqn{t \to \infty} when
-\eqn{-1 < \rho(\tau) < 0}.
+correction mechanism. Values approach zero as \eqn{t} grows when
+\eqn{-2 < \rho(\tau) < 0}; for \eqn{-2 < \rho(\tau) \le -1} the response
+oscillates in sign (the half-life of \code{\link{xtpqardl}} is defined
+for \eqn{-1 < \rho < 0} only). Outside \eqn{(-2, 0)} the entries are
+\code{NA} (printed as "div.").
 }
 \examples{
 \donttest{
