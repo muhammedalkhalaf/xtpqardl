@@ -2,3 +2,4 @@
 ^FIX_SUMMARY\.md$
 ^\.git$
 ^.*\.Rcheck$
+^\.zenodo\.json$
